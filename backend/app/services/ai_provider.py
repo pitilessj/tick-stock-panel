@@ -730,12 +730,16 @@ def _openai_client(api_key: str, timeout: float):
     )
 
 
-async def _probe_codex_cli(*, model: str = "", timeout: float = 90.0) -> str:
+async def _probe_codex_cli(*, model: str = "", timeout: float = 300.0) -> str:
     """Codex CLI 真实连通性探测: 跑一次最小 exec 验证命令与登录态。
 
     旧实现只验 `codex --version` — 命令存在但未登录 (auth.json 缺失) 时
     「测试连接」通过、实际调用全 401。探测与正式调用共用 _run_codex_cli,
     鉴权/端点/模型问题在测试阶段即暴露, 失败信息含登录指引。
+
+    超时 300s: 弱网/受限网络下 codex 先试 WebSocket 再重连回退 HTTPS,
+    冷启动每次新建临时 CODEX_HOME(模型缓存为空)实测 ~140-200s
+    (2026-10-30 本机), 原 90s 会误报超时。
     """
     if not codex_cli_available():
         raise RuntimeError("Codex CLI 不可用: 未找到可运行的 codex 命令, 请先安装 Codex CLI")
@@ -1133,11 +1137,22 @@ def _run_codex_process(
     return proc.returncode, proc.stdout, proc.stderr
 
 
+# codex 子进程不继承的代理变量。codex 的 WebSocket 传输在本地 http 代理
+# (含 Clash/沙箱网关等) 后面会反复 502/超时, 且其 HTTP 栈不识别 NO_PROXY
+# (2026-10-30 实测: 直连 ~140s 成功, 挂沙箱代理 210s 超时); 面板自身的
+# openai_compat/httpx 调用不受影响, 仍照常走系统代理。
+_CODEX_PROXY_ENV_NAMES = frozenset(
+    {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+)
+
+
 def _codex_process_env(codex_home_path: Path) -> dict[str, str]:
     """Pass OS settings and the explicitly configured provider credential to Codex."""
     env: dict[str, str] = {}
     seen: set[str] = set()
     for name in _CODEX_ENV_ALLOWLIST:
+        if name.casefold() in _CODEX_PROXY_ENV_NAMES:
+            continue
         normalized = name.casefold() if os.name == "nt" else name
         if normalized in seen:
             continue

@@ -468,7 +468,10 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
           ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
         },
         // codex 探测是真实最小 exec (CLI 启动+一次生成), 默认 30s 会掐断
-        isCodexProvider ? { timeoutMs: 90_000 } : undefined,
+        // codex 探测是真实最小 exec (CLI 启动+一次生成)。受限网络下
+        // WebSocket 尝试会重连 5 次再回退 HTTPS, 冷启动实测 140-200s —
+        // 原 90s 会误报超时 (2026-10-30 实测), 与后端 300s 探测超时对齐。
+        isCodexProvider ? { timeoutMs: 330_000 } : undefined,
       )
       setTestResult({
         ok: r.ok,

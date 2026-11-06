@@ -2771,9 +2771,13 @@ export const api = {
 
   settings: () => request<SettingsState>('/api/settings'),
   saveTickflowKey: (api_key: string) =>
+    // 先探后存: 后端串行实测各能力项判定档位; 弱网/付费端点限流时
+    // 整轮探测实测可达 100s+ (默认 30s 会先超时, 但请求仍会在后端完成落盘,
+    // 表现为「保存失败」其实已保存)。超时给到 180s 覆盖最坏情况。
     request<SaveTickflowKeyResult>('/api/settings/tickflow-key', {
       method: 'POST',
       body: JSON.stringify({ api_key }),
+      timeoutMs: 180_000,
     }),
   clearTickflowKey: () =>
     request<any>('/api/settings/tickflow-key', { method: 'DELETE' }),
